@@ -2,41 +2,45 @@
 
 ## 1. Goal
 
-Build the smallest real AWS-backed system that demonstrates persistent
-debugging knowledge across sessions.
+Build the smallest real AWS-backed system that demonstrates persistent debugging knowledge across sessions.
 
 Priorities:
 
--   real AWS usage
--   persistent memory
--   real Bedrock reasoning
--   deterministic behavior
--   low implementation risk
--   strong 3-minute demo
+- real AWS usage
+- persistent memory
+- real Bedrock reasoning
+- deterministic behavior
+- low implementation risk
+- strong 3-minute demo
 
 ## 2. High-Level Architecture
 
-``` text
-┌─────────────────────────────┐
-│       React Frontend        │
-│                             │
-│  Debug Session | Memory     │
-└──────────────┬──────────────┘
-               │
-               ▼
-┌─────────────────────────────┐
-│       AWS Lambda            │
-│                             │
-│ Capture / Detect / Recall   │
-│ Bedrock orchestration       │
-└───────┬───────────┬─────────┘
-        │           │
-        ▼           ▼
-┌─────────────┐ ┌─────────────┐
-│ DynamoDB    │ │ Amazon      │
-│ Debug       │ │ Bedrock     │
-│ Memory      │ │ Reasoning   │
-└─────────────┘ └─────────────┘
+```text
+┌──────────────────────────┐
+│    React Frontend        │
+│                          │
+│ Debug Session            │
+│ Debug Memory             │
+└────────────┬─────────────┘
+             │
+             ▼
+┌──────────────────────────┐
+│     AWS Lambda           │
+│     LoopBreakBackend     │
+│                          │
+│ /attempt                 │
+│ /analyze                 │
+│ /memory                  │
+│ /recall                  │
+└──────────┬───────┬───────┘
+           │       │
+           ▼       ▼
+┌──────────────┐  ┌────────────────┐
+│  DynamoDB    │  │ Amazon Bedrock │
+│              │  │                │
+│ Debugging   │  │ AI reasoning   │
+│ Memory      │  │                │
+└──────────────┘  └────────────────┘
 ```
 
 ## 3. Responsibilities
@@ -45,34 +49,49 @@ Priorities:
 
 Responsible for:
 
--   Debug Session screen
--   attempt timeline
--   loop-detected state
--   evidence display
--   Bedrock recommendation
--   Debug Memory screen
--   Agent B recall experience
+- Debug Session screen
+- attempt timeline
+- current session fingerprint list
+- loop-detected state
+- evidence display
+- Bedrock recommendation
+- Debug Memory screen
+- Agent B recall experience
 
-React must not contain AWS credentials or Bedrock logic.
+React must not contain AWS credentials or Bedrock credentials.
+
+React owns the current debugging session state.
 
 ### Lambda
 
 Responsible for:
 
--   receiving debugging events
--   generating deterministic fingerprints
--   checking repeated hypotheses
--   reading/writing DynamoDB
--   calling Bedrock
--   returning structured results
+- request validation
+- deterministic fingerprint generation
+- stateless loop detection
+- DynamoDB memory writes
+- DynamoDB memory queries
+- Bedrock orchestration
+- structured API responses
 
-Keep backend logic centralized in one Lambda initially.
+The four backend routes have separate responsibilities:
+
+```text
+POST /attempt  → loop detection
+POST /analyze  → Bedrock reasoning
+POST /memory   → DynamoDB write
+GET  /recall   → DynamoDB read
+```
+
+Lambda does not rely on in-memory server state for session history.
 
 ### DynamoDB
 
-Suggested table:
+Table:
 
-`LoopBreakMemory`
+```text
+LoopBreakMemory
+```
 
 Primary key:
 
@@ -81,131 +100,240 @@ PK = repo_id#component
 SK = timestamp
 ```
 
-This gives Agent B a direct DynamoDB Query path for recall instead of a Scan.
+Example:
 
-Useful attributes:
+```text
+PK = demo-checkout#checkoutService
+SK = 2026-09-18T21:16:30.923Z
+```
 
-``` text
+Resolved memories contain:
+
+```text
 session_id
 repo_id
 component
-error_fingerprint
-hypothesis_category
-hypothesis_fingerprint
 error
-hypothesis
+hypothesis_category
+failed_hypotheses
 evidence
-result
 root_cause
 fix
 verification
 timestamp
+memory_type
 ```
 
-Do not over-engineer the schema.
+Resolved memories use:
+
+```text
+memory_type = resolved_debugging_memory
+```
+
+Normal retrieval uses a DynamoDB Query on:
+
+```text
+PK = repo_id#component
+```
+
+Do not use a Scan for normal memory retrieval.
+
+### Amazon Bedrock
+
+Bedrock is responsible for evidence-driven reasoning.
+
+It receives the accumulated debugging attempts from the current session.
+
+The model must reason only from supplied evidence and must not invent evidence.
 
 ## 4. Deterministic Loop Detection
 
-Loop detection should not depend on an LLM.
+Loop detection does not depend on an LLM.
 
-Create a normalized fingerprint from:
+The deterministic fingerprint is generated from:
 
-``` text
-repo_id + component + error + hypothesis
+```text
+repo_id + component + hypothesis_category
 ```
 
-Normalize:
+The values are normalized by:
 
--   lowercase
--   whitespace
--   punctuation where appropriate
+- converting to lowercase
+- trimming whitespace
+- normalizing repeated whitespace
 
-Hash the normalized representation, for example with SHA-256.
+They are combined using:
 
-If the same/equivalent fingerprint appears again in the same debugging
-session:
+```text
+repo_id|component|hypothesis_category
+```
 
-``` text
+and hashed using SHA-256.
+
+The free-form hypothesis text is deliberately not part of the fingerprint.
+
+The frontend maintains the fingerprints already seen during the current session.
+
+The frontend sends those fingerprints to `/attempt` using:
+
+```json
+{
+  "prior_fingerprints": []
+}
+```
+
+Lambda checks whether the newly generated fingerprint already exists in that list.
+
+If it exists:
+
+```text
 LOOP DETECTED
 ```
 
+Lambda returns the updated fingerprint list.
+
 ## 5. Bedrock Reasoning
 
-Bedrock receives accumulated evidence.
+### POST /analyze
 
-Conceptual input:
+The current React session owns the accumulated attempt list.
 
-``` json
+The request contains:
+
+```json
 {
-  "error": "...",
-  "attempts": [
-    {
-      "hypothesis": "...",
-      "change": "...",
-      "result": "...",
-      "evidence": "..."
-    }
-  ]
+  "session_id": "session-agent-a-001",
+  "repo_id": "demo-checkout",
+  "component": "checkoutService",
+  "attempts": []
 }
 ```
 
-Expected structured output:
+The accumulated attempts can contain:
 
-``` json
+```text
+hypothesis
+hypothesis_category
+change
+result
+evidence
+```
+
+Expected reasoning should identify:
+
+```text
+ruled-out hypotheses
+supporting evidence
+next investigation
+root cause
+fix
+```
+
+The model must clearly distinguish supplied evidence from uncertainty.
+
+## 6. Memory Storage
+
+### POST /memory
+
+`/memory` stores a completed and verified debugging memory.
+
+It does not store every raw debugging attempt.
+
+Example:
+
+```json
 {
-  "ruled_out": [
+  "session_id": "session-agent-a-001",
+  "repo_id": "demo-checkout",
+  "component": "checkoutService",
+  "error": "Checkout request failed with timeout",
+  "hypothesis_category": "payment_api",
+  "failed_hypotheses": [
     {
-      "hypothesis": "...",
-      "why": "..."
+      "hypothesis": "The database connection is timing out",
+      "reason": "Database query completes successfully"
     }
   ],
-  "evidence": [],
-  "current_hypothesis_supported": false,
-  "next_investigation": "...",
-  "root_cause": "..."
+  "evidence": [
+    "Database query completes successfully",
+    "Payment API responds after approximately 3.8 seconds",
+    "Client timeout is 2 seconds"
+  ],
+  "root_cause": "Payment API response exceeds the client timeout",
+  "fix": "Increase payment request timeout from 2 seconds to 5 seconds",
+  "verification": "Checkout test passed"
 }
 ```
 
-The model should reason only from supplied evidence and explicitly
-identify uncertainty.
+Lambda adds:
 
-## 6. Memory Recall
+```text
+PK
+SK
+timestamp
+memory_type
+```
 
-Agent B sends:
+## 7. Memory Recall
 
-``` json
+### GET /recall
+
+Agent B requests prior debugging memories using query parameters.
+
+Example:
+
+```text
+GET /recall?repo_id=demo-checkout&component=checkoutService&hypothesis_category=database&session_id=session-agent-b-001
+```
+
+Required parameters:
+
+```text
+repo_id
+component
+```
+
+Optional parameters:
+
+```text
+hypothesis_category
+session_id
+```
+
+Lambda performs:
+
+```text
+Query:
+PK = repo_id#component
+```
+
+Then filters to:
+
+```text
+memory_type = resolved_debugging_memory
+```
+
+If `hypothesis_category` is provided, memories are filtered by that category.
+
+If `session_id` is provided, memories from that same session are excluded.
+
+Response:
+
+```json
 {
-  "repo_id": "checkout-demo",
-  "component": "checkoutService",
-  "error": "..."
+  "success": true,
+  "prior_memory_found": true,
+  "memories": []
 }
 ```
 
-Lambda searches DynamoDB for relevant prior memories.
+No numeric similarity score should be shown unless actual embeddings and cosine similarity are implemented.
 
-### MVP matching
+## 8. Optional Semantic Layer
 
-1.  Exact component/error fingerprint.
-2.  Exact repository/component match.
-3.  Related stored debugging record if available.
+Only after the core system works:
 
-Do not show a numeric similarity score unless actual embeddings and
-cosine similarity have been implemented.
-
-Instead show factual match reasons such as:
-
-``` text
-Related because:
-• Same component
-• Same error family
-• Previous investigation involved the same dependency
-```
-
-## 7. Optional Semantic Layer
-
-Only after the basic system works:
-
-``` text
+```text
 Bedrock embedding
       ↓
 Vector representation
@@ -217,50 +345,102 @@ Relevant prior memories
 
 This is optional and must not block the core demo.
 
-## 8. Minimal API
+## 9. API Contract
 
 ### POST /attempt
 
-Records an attempt.
+Stateless deterministic loop detection.
 
-``` json
+Request:
+
+```json
 {
-  "session_id": "...",
-  "repo_id": "...",
-  "component": "...",
-  "error": "...",
-  "hypothesis": "...",
+  "session_id": "session-agent-a-001",
+  "repo_id": "demo-checkout",
+  "component": "checkoutService",
+  "error": "Checkout request failed with timeout",
+  "hypothesis": "The database connection is timing out",
   "hypothesis_category": "database",
-  "change": "...",
-  "result": "...",
-  "evidence": "..."
+  "change": "Increased database timeout from 2s to 5s",
+  "result": "Failed — checkout still times out",
+  "evidence": "Database query completes successfully",
+  "prior_fingerprints": []
 }
 ```
 
+Response:
+
+```json
+{
+  "success": true,
+  "fingerprint": "string",
+  "loop_detected": false,
+  "updated_fingerprints": ["string"]
+}
+```
+
+No DynamoDB write occurs in `/attempt`.
+
 ### POST /analyze
 
-The current React session owns the accumulated attempt list and sends the complete array in the request body. Lambda does not maintain in-memory session state.
+The current session sends its complete attempt list.
 
-Sends the accumulated attempts to Bedrock.
+```json
+{
+  "session_id": "session-agent-a-001",
+  "repo_id": "demo-checkout",
+  "component": "checkoutService",
+  "attempts": []
+}
+```
+
+Bedrock produces structured debugging reasoning.
 
 ### POST /memory
 
 Stores completed debugging knowledge.
 
-### POST /recall
+```json
+{
+  "session_id": "session-agent-a-001",
+  "repo_id": "demo-checkout",
+  "component": "checkoutService",
+  "error": "Checkout request failed with timeout",
+  "hypothesis_category": "payment_api",
+  "failed_hypotheses": [],
+  "evidence": [],
+  "root_cause": "Payment API response exceeds the client timeout",
+  "fix": "Increase payment request timeout from 2 seconds to 5 seconds",
+  "verification": "Checkout test passed"
+}
+```
 
-Retrieves prior debugging memories for Agent B.
+### GET /recall
 
-## 9. Security
+Retrieves prior resolved debugging memories.
 
--   No AWS credentials in React.
--   AWS access belongs to Lambda's IAM role.
--   Do not store secrets/API keys in DynamoDB.
--   Use environment variables for configuration.
+```text
+GET /recall?repo_id=demo-checkout&component=checkoutService
+```
 
-## 10. Deployment
+Optional:
 
-``` text
+```text
+hypothesis_category
+session_id
+```
+
+## 10. Security
+
+- No AWS credentials in React.
+- AWS access belongs to Lambda's IAM role.
+- Do not store secrets/API keys in DynamoDB.
+- Use environment variables for configuration.
+- Do not commit credentials or secret keys to Git.
+
+## 11. Deployment
+
+```text
 React
   ↓
 Static hosting / local demo
@@ -278,21 +458,19 @@ Bedrock
 AI reasoning
 ```
 
-If deployment time is limited, prioritize an AWS-backed working demo
-over unnecessary hosting infrastructure.
+If deployment time is limited, prioritize an AWS-backed working demo over unnecessary hosting infrastructure.
 
-## 11. Failure Strategy
+## 12. Failure Strategy
 
 If Bedrock fails during the demo:
 
--   preserve the deterministic attempt timeline
--   show a clear error state
--   never fake a successful live Bedrock response
+- preserve the deterministic attempt timeline
+- show a clear error state
+- never fake a successful live Bedrock response
 
-A development fallback fixture may exist, but the final demo must
-distinguish fixture content from live output.
+A development fallback fixture may exist, but the final demo must distinguish fixture content from live output.
 
-## 12. Architecture Principle
+## 13. Architecture Principle
 
 Every AWS service must have a clear reason to exist:
 
