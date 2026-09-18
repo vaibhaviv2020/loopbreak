@@ -1,7 +1,7 @@
 const { createFingerprint } = require("./services/fingerprint");
 const { putMemory, getMemories } = require("./services/dynamodb");
 
-const requiredFields = [
+const requiredAttemptFields = [
   "session_id",
   "repo_id",
   "component",
@@ -11,6 +11,16 @@ const requiredFields = [
   "change",
   "result",
   "evidence"
+];
+
+const allowedCategories = [
+  "database",
+  "payment_api",
+  "auth",
+  "network",
+  "cache",
+  "configuration",
+  "frontend"
 ];
 
 function response(statusCode, body) {
@@ -40,30 +50,27 @@ function parseBody(event) {
   }
 }
 
-async function handleAttempt(body) {
-  for (const field of requiredFields) {
+function validateAttempt(body) {
+  for (const field of requiredAttemptFields) {
     if (!body[field]) {
-      return response(400, {
-        success: false,
-        error: `Missing required field: ${field}`
-      });
+      return `Missing required field: ${field}`;
     }
   }
 
-  const allowedCategories = [
-    "database",
-    "payment_api",
-    "auth",
-    "network",
-    "cache",
-    "configuration",
-    "frontend"
-  ];
-
   if (!allowedCategories.includes(body.hypothesis_category)) {
+    return "Invalid hypothesis_category";
+  }
+
+  return null;
+}
+
+async function handleAttempt(body) {
+  const validationError = validateAttempt(body);
+
+  if (validationError) {
     return response(400, {
       success: false,
-      error: "Invalid hypothesis_category"
+      error: validationError
     });
   }
 
@@ -73,16 +80,59 @@ async function handleAttempt(body) {
     body.hypothesis_category
   );
 
-  const existingMemories = await getMemories(
-    body.repo_id,
-    body.component
-  );
+  const priorFingerprints = Array.isArray(body.prior_fingerprints)
+    ? body.prior_fingerprints
+    : [];
 
-  const loopDetected = existingMemories.some(
-    memory => memory.fingerprint === fingerprint
-  );
+  const loopDetected = priorFingerprints.includes(fingerprint);
 
-  const timestamp = new Date().toISOString();
+  const updatedFingerprints = [
+    ...new Set([...priorFingerprints, fingerprint])
+  ];
+
+  return response(200, {
+    success: true,
+    fingerprint,
+    loop_detected: loopDetected,
+    updated_fingerprints: updatedFingerprints
+  });
+}
+
+async function handleMemory(body) {
+  const requiredFields = [
+    "session_id",
+    "repo_id",
+    "component",
+    "error",
+    "hypothesis_category",
+    "failed_hypotheses",
+    "evidence",
+    "root_cause",
+    "fix",
+    "verification"
+  ];
+
+  for (const field of requiredFields) {
+    if (
+      body[field] === undefined ||
+      body[field] === null ||
+      body[field] === ""
+    ) {
+      return response(400, {
+        success: false,
+        error: `Missing required field: ${field}`
+      });
+    }
+  }
+
+  if (!allowedCategories.includes(body.hypothesis_category)) {
+    return response(400, {
+      success: false,
+      error: "Invalid hypothesis_category"
+    });
+  }
+
+  const timestamp = body.timestamp || new Date().toISOString();
 
   const memory = {
     PK: `${body.repo_id}#${body.component}`,
@@ -91,26 +141,30 @@ async function handleAttempt(body) {
     repo_id: body.repo_id,
     component: body.component,
     error: body.error,
-    hypothesis: body.hypothesis,
     hypothesis_category: body.hypothesis_category,
-    change: body.change,
-    result: body.result,
+    failed_hypotheses: body.failed_hypotheses,
     evidence: body.evidence,
-    fingerprint,
-    memory_type: "debugging_attempt",
-    timestamp
+    root_cause: body.root_cause,
+    fix: body.fix,
+    verification: body.verification,
+    timestamp,
+    memory_type: "resolved_debugging_memory"
   };
 
   await putMemory(memory);
 
   return response(200, {
     success: true,
-    fingerprint,
-    loop_detected: loopDetected
+    memory
   });
 }
 
-async function handleMemory(repoId, component) {
+async function handleRecall(
+  repoId,
+  component,
+  hypothesisCategory,
+  sessionId
+) {
   if (!repoId || !component) {
     return response(400, {
       success: false,
@@ -120,19 +174,41 @@ async function handleMemory(repoId, component) {
 
   const memories = await getMemories(repoId, component);
 
+  let relevantMemories = memories.filter(
+    memory => memory.memory_type === "resolved_debugging_memory"
+  );
+
+  if (hypothesisCategory) {
+    relevantMemories = relevantMemories.filter(
+      memory => memory.hypothesis_category === hypothesisCategory
+    );
+  }
+
+  if (sessionId) {
+    relevantMemories = relevantMemories.filter(
+      memory => memory.session_id !== sessionId
+    );
+  }
+
   return response(200, {
     success: true,
-    memories
+    prior_memory_found: relevantMemories.length > 0,
+    memories: relevantMemories
   });
 }
 
-exports.handler = async (event) => {
+exports.handler = async event => {
   try {
-    const method = event.requestContext?.http?.method || event.httpMethod;
-    const path = event.rawPath || event.path || "/";
+    const method =
+      event.requestContext?.http?.method || event.httpMethod;
+
+    const path =
+      event.rawPath || event.path || "/";
 
     if (method === "OPTIONS") {
-      return response(200, { success: true });
+      return response(200, {
+        success: true
+      });
     }
 
     if (method === "POST" && path === "/attempt") {
@@ -140,14 +216,20 @@ exports.handler = async (event) => {
       return await handleAttempt(body);
     }
 
-    if (method === "GET" && path === "/memory") {
-      const params = event.queryStringParameters || {};
-      return await handleMemory(params.repo_id, params.component);
+    if (method === "POST" && path === "/memory") {
+      const body = parseBody(event);
+      return await handleMemory(body);
     }
 
     if (method === "GET" && path === "/recall") {
       const params = event.queryStringParameters || {};
-      return await handleMemory(params.repo_id, params.component);
+
+      return await handleRecall(
+        params.repo_id,
+        params.component,
+        params.hypothesis_category,
+        params.session_id
+      );
     }
 
     if (method === "POST" && path === "/analyze") {
