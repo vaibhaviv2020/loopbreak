@@ -1,0 +1,17 @@
+{
+  "name": "loopbreak-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LoopBreak: Shared Persistent Debugging Memory for AI Agents",
+  "scripts": {
+    "test": "npm run test:all",
+    "test:all": "npm test --prefix backend && npm test --prefix lb-agent",
+    "test:backend": "npm test --prefix backend",
+    "test:agent": "npm test --prefix lb-agent",
+    "test:demo": "npm test --prefix demo-repo",
+    "demo": "npm run demo --prefix lb-agent",
+    "serve:backend": "npm start --prefix backend",
+    "serve:agent": "npm run serve --prefix lb-agent",
+    "serve:frontend": "npm run dev --prefix frontend"
+  }
+}

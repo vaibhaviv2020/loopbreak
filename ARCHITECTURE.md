@@ -16,31 +16,31 @@ Priorities:
 ## 2. High-Level Architecture
 
 ```text
-┌──────────────────────────┐
-│    React Frontend        │
-│                          │
-│ Debug Session            │
-│ Debug Memory             │
-└────────────┬─────────────┘
-             │
-             ▼
-┌──────────────────────────┐
-│     AWS Lambda           │
-│     LoopBreakBackend     │
-│                          │
-│ /attempt                 │
-│ /analyze                 │
-│ /memory                  │
-│ /recall                  │
-└──────────┬───────┬───────┘
-           │       │
-           ▼       ▼
-┌──────────────┐  ┌────────────────┐
-│  DynamoDB    │  │ Amazon Bedrock │
-│              │  │                │
-│ Debugging   │  │ AI reasoning   │
-│ Memory      │  │                │
-└──────────────┘  └────────────────┘
+┌───────────────────────────────┐
+│     Controlled lb-agent       │
+│                               │
+│ list_files   edit_file        │
+│ read_file    run_tests (real) │
+└───────┬───────────────┬───────┘
+        │               │
+        │ HTTP API      │ SSE Events (:8787)
+        ▼               ▼
+┌──────────────────┐  ┌──────────────────┐
+│ LoopBreak API    │  │  React Frontend  │
+│ (Lambda/local)   │  │  (Live Console)  │
+│                  │  │                  │
+│ /attempt         │  │ Debug Session    │
+│ /analyze         │  │ Debug Memory     │
+│ /memory          │  │ Why Map          │
+│ /recall          │  └──────────────────┘
+└───────┬──────────┘
+        │
+    ┌───┴──────────┐
+    ▼              ▼
+┌──────────────┐ ┌────────────────┐
+│  DynamoDB    │ │ Amazon Bedrock │
+│ (Memory)     │ │ (Reasoning)    │
+└──────────────┘ └────────────────┘
 ```
 
 ## 3. Responsibilities

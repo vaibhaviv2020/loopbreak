@@ -310,6 +310,74 @@ The two things that must be real:
 1. The Bedrock reasoning call.
 2. The DynamoDB memory write/read during Agent A → Agent B.
 
+## Running the Hackathon Demo
+
+### Option 1: Automated 3-Minute CLI Demo (Fastest)
+
+Runs the complete sequence: Agent A encounters bug → makes real debugging attempts → LoopBreak detects loop → Bedrock analyzes → Agent applies fix → real tests pass → verified memory saved → Fresh Agent B starts → recalls memory → applies fix without dead ends → real tests pass.
+
+```powershell
+# Set deterministic fixture mode for local offline demo
+$env:LOOPBREAK_USE_FIXTURE = "true"
+
+# Run automated demo from root
+npm run demo
+```
+
+### Option 2: Live React Observability Console Demo
+
+Allows you to watch real agent activity stream live into the dashboard via Server-Sent Events (SSE).
+
+**Terminal 1: Start Backend API**
+```powershell
+npm run serve:backend
+# Running on http://127.0.0.1:3000
+```
+
+**Terminal 2: Start lb-agent SSE Relay**
+```powershell
+$env:LOOPBREAK_USE_FIXTURE = "true"
+npm run serve:agent
+# Running on http://127.0.0.1:8787
+```
+
+**Terminal 3: Start React Console**
+```powershell
+npm run serve:frontend
+# Running on http://localhost:5173
+```
+
+Open `http://localhost:5173` in your browser. Click **"▶ Run Full 3-Min Demo"** (or **"Run Agent A"** then **"Run Agent B"**). The UI will stream real agent activity live!
+
+## Environment Modes
+
+### Local Demo Mode (Default for Offline / Hackathon Rehearsal)
+Uses deterministic fixture analysis for Bedrock and local memory storage for DynamoDB:
+```powershell
+$env:LOOPBREAK_USE_FIXTURE = "true"
+```
+
+### Live AWS Production Mode
+Connects directly to Amazon Bedrock and Amazon DynamoDB:
+```powershell
+$env:AWS_ACCESS_KEY_ID = "YOUR_ACCESS_KEY"
+$env:AWS_SECRET_ACCESS_KEY = "YOUR_SECRET_KEY"
+$env:AWS_REGION = "eu-north-1"
+$env:BEDROCK_MODEL_ID = "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+$env:TABLE_NAME = "LoopBreakMemory"
+
+Remove-Item Env:\LOOPBREAK_USE_FIXTURE -ErrorAction SilentlyContinue
+```
+
+## Controlled lb-agent Tool Model & Security
+
+`lb-agent` operates under strict security constraints:
+1. **Repository Sandbox**: All file operations resolve strictly inside the configured repository root. Path traversal (`..`) and absolute path escapes are blocked.
+2. **Restricted Tools**: Only `list_files`, `read_file`, `edit_file`, and `run_tests` are exposed. No arbitrary shell execution is permitted.
+3. **Mandatory Hypotheses**: `edit_file` requires an explicit hypothesis and controlled category (`database`, `payment_api`, etc.).
+4. **Credential Redaction**: Output from test runs and files is redacted for AWS keys, bearer tokens, and secrets, bounded to 4,000 characters.
+5. **No Fake Tests**: `run_tests` executes the real test command and captures genuine exit codes (code 1 for failure, code 0 for pass).
+
 ## Success Criterion
 
 The judge should understand this in under 30 seconds:

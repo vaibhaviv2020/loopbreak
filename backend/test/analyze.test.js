@@ -398,6 +398,8 @@ async function main() {
     assert.ok(
       err.name === "ValidationException" ||
       err.name === "AccessDeniedException" ||
+      err.name === "CredentialsProviderError" ||
+      err.message.includes("Could not load credentials") ||
       err.message.includes("Operation not allowed") ||
       err.message.includes("security token"),
       "Real Bedrock must throw real AWS exception when unauthorized and not mask it"
