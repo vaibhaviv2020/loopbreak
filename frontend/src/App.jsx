@@ -23,18 +23,29 @@ import {
 export default function App() {
   const [session, setSession] = useState(createInitialSession)
   const agentASession = useRef(null)
+  const sessionGeneration = useRef(0)
+
+  function isCurrentSession(current, requestSessionId, requestGeneration) {
+    return (
+      current.session_id === requestSessionId &&
+      sessionGeneration.current === requestGeneration
+    )
+  }
 
   function loadDemoScenario() {
+    sessionGeneration.current += 1
     agentASession.current = null
     setSession(createInitialSession())
   }
 
   function resetDemo() {
+    sessionGeneration.current += 1
     agentASession.current = null
     setSession(createInitialSession())
   }
 
   function startAgentB() {
+    sessionGeneration.current += 1
     agentASession.current = session
 
     setSession((current) => ({
@@ -48,8 +59,10 @@ export default function App() {
   }
 
   async function submitAttempt(fields) {
+    const requestSessionId = session.session_id
+    const requestGeneration = sessionGeneration.current
     const payload = {
-      session_id: session.session_id,
+      session_id: requestSessionId,
       repo_id: session.repo_id,
       component: session.component,
       error: session.error,
@@ -61,22 +74,32 @@ export default function App() {
       prior_fingerprints: session.prior_fingerprints,
     }
 
-    setSession((current) => ({
-      ...current,
-      loading: {
-        ...current.loading,
-        attempt: true,
-      },
-      errors: {
-        ...current.errors,
-        attempt: null,
-      },
-    }))
+    setSession((current) => {
+      if (!isCurrentSession(current, requestSessionId, requestGeneration)) {
+        return current
+      }
+
+      return {
+        ...current,
+        loading: {
+          ...current.loading,
+          attempt: true,
+        },
+        errors: {
+          ...current.errors,
+          attempt: null,
+        },
+      }
+    })
 
     try {
       const response = await createAttempt(payload)
 
       setSession((current) => {
+        if (!isCurrentSession(current, requestSessionId, requestGeneration)) {
+          return current
+        }
+
         const recordedAttempt = {
           hypothesis: payload.hypothesis,
           hypothesis_category: payload.hypothesis_category,
@@ -99,6 +122,9 @@ export default function App() {
             typeof response.loop_detected === 'boolean'
               ? response.loop_detected
               : current.loop_detected,
+          analysis: null,
+          verification: '',
+          memorySaveStatus: 'idle',
           loading: {
             ...current.loading,
             attempt: false,
@@ -106,6 +132,7 @@ export default function App() {
           errors: {
             ...current.errors,
             attempt: null,
+            memory: null,
           },
         }
       })
@@ -117,17 +144,23 @@ export default function App() {
           ? error.message
           : 'Unable to record the debugging attempt.'
 
-      setSession((current) => ({
-        ...current,
-        loading: {
-          ...current.loading,
-          attempt: false,
-        },
-        errors: {
-          ...current.errors,
-          attempt: message,
-        },
-      }))
+      setSession((current) => {
+        if (!isCurrentSession(current, requestSessionId, requestGeneration)) {
+          return current
+        }
+
+        return {
+          ...current,
+          loading: {
+            ...current.loading,
+            attempt: false,
+          },
+          errors: {
+            ...current.errors,
+            attempt: message,
+          },
+        }
+      })
 
       return false
     }
@@ -138,8 +171,10 @@ export default function App() {
       return false
     }
 
+    const requestSessionId = session.session_id
+    const requestGeneration = sessionGeneration.current
     const payload = {
-      session_id: session.session_id,
+      session_id: requestSessionId,
       repo_id: session.repo_id,
       component: session.component,
       error: session.error,
@@ -147,33 +182,45 @@ export default function App() {
       prior_fingerprints: session.prior_fingerprints,
     }
 
-    setSession((current) => ({
-      ...current,
-      loading: {
-        ...current.loading,
-        analyze: true,
-      },
-      errors: {
-        ...current.errors,
-        analyze: null,
-      },
-    }))
+    setSession((current) => {
+      if (!isCurrentSession(current, requestSessionId, requestGeneration)) {
+        return current
+      }
 
-    try {
-      const response = await analyzeAttempts(payload)
-
-      setSession((current) => ({
+      return {
         ...current,
-        analysis: response,
         loading: {
           ...current.loading,
-          analyze: false,
+          analyze: true,
         },
         errors: {
           ...current.errors,
           analyze: null,
         },
-      }))
+      }
+    })
+
+    try {
+      const response = await analyzeAttempts(payload)
+
+      setSession((current) => {
+        if (!isCurrentSession(current, requestSessionId, requestGeneration)) {
+          return current
+        }
+
+        return {
+          ...current,
+          analysis: response,
+          loading: {
+            ...current.loading,
+            analyze: false,
+          },
+          errors: {
+            ...current.errors,
+            analyze: null,
+          },
+        }
+      })
 
       return true
     } catch (error) {
@@ -184,17 +231,23 @@ export default function App() {
             ? error.message
             : 'Unable to analyze the debugging loop.'
 
-      setSession((current) => ({
-        ...current,
-        loading: {
-          ...current.loading,
-          analyze: false,
-        },
-        errors: {
-          ...current.errors,
-          analyze: message,
-        },
-      }))
+      setSession((current) => {
+        if (!isCurrentSession(current, requestSessionId, requestGeneration)) {
+          return current
+        }
+
+        return {
+          ...current,
+          loading: {
+            ...current.loading,
+            analyze: false,
+          },
+          errors: {
+            ...current.errors,
+            analyze: message,
+          },
+        }
+      })
 
       return false
     }
@@ -216,6 +269,8 @@ export default function App() {
   }
 
   async function saveVerifiedMemory() {
+    const requestSessionId = session.session_id
+    const requestGeneration = sessionGeneration.current
     const analysis = session.analysis
     const verification = session.verification.trim()
     const latestAttempt = session.attempts.at(-1)
@@ -238,7 +293,7 @@ export default function App() {
     }
 
     const payload = {
-      session_id: session.session_id,
+      session_id: requestSessionId,
       repo_id: session.repo_id,
       component: session.component,
       error: session.error,
@@ -250,34 +305,46 @@ export default function App() {
       verification,
     }
 
-    setSession((current) => ({
-      ...current,
-      loading: {
-        ...current.loading,
-        memory: true,
-      },
-      memorySaveStatus: 'idle',
-      errors: {
-        ...current.errors,
-        memory: null,
-      },
-    }))
+    setSession((current) => {
+      if (!isCurrentSession(current, requestSessionId, requestGeneration)) {
+        return current
+      }
 
-    try {
-      await saveMemory(payload)
-
-      setSession((current) => ({
+      return {
         ...current,
         loading: {
           ...current.loading,
-          memory: false,
+          memory: true,
         },
-        memorySaveStatus: 'saved',
+        memorySaveStatus: 'idle',
         errors: {
           ...current.errors,
           memory: null,
         },
-      }))
+      }
+    })
+
+    try {
+      await saveMemory(payload)
+
+      setSession((current) => {
+        if (!isCurrentSession(current, requestSessionId, requestGeneration)) {
+          return current
+        }
+
+        return {
+          ...current,
+          loading: {
+            ...current.loading,
+            memory: false,
+          },
+          memorySaveStatus: 'saved',
+          errors: {
+            ...current.errors,
+            memory: null,
+          },
+        }
+      })
 
       return true
     } catch (error) {
@@ -286,18 +353,24 @@ export default function App() {
           ? error.message
           : 'Unable to save the debugging memory.'
 
-      setSession((current) => ({
-        ...current,
-        loading: {
-          ...current.loading,
-          memory: false,
-        },
-        memorySaveStatus: 'idle',
-        errors: {
-          ...current.errors,
-          memory: message,
-        },
-      }))
+      setSession((current) => {
+        if (!isCurrentSession(current, requestSessionId, requestGeneration)) {
+          return current
+        }
+
+        return {
+          ...current,
+          loading: {
+            ...current.loading,
+            memory: false,
+          },
+          memorySaveStatus: 'idle',
+          errors: {
+            ...current.errors,
+            memory: message,
+          },
+        }
+      })
 
       return false
     }
@@ -308,17 +381,26 @@ export default function App() {
       return false
     }
 
-    setSession((current) => ({
-      ...current,
-      loading: {
-        ...current.loading,
-        recall: true,
-      },
-      errors: {
-        ...current.errors,
-        recall: null,
-      },
-    }))
+    const requestSessionId = session.session_id
+    const requestGeneration = sessionGeneration.current
+
+    setSession((current) => {
+      if (!isCurrentSession(current, requestSessionId, requestGeneration)) {
+        return current
+      }
+
+      return {
+        ...current,
+        loading: {
+          ...current.loading,
+          recall: true,
+        },
+        errors: {
+          ...current.errors,
+          recall: null,
+        },
+      }
+    })
 
     try {
       const response = await recallMemory({
@@ -326,20 +408,26 @@ export default function App() {
         component: session.component,
       })
 
-      setSession((current) => ({
-        ...current,
-        recalled_memories: Array.isArray(response.memories)
-          ? response.memories
-          : [],
-        loading: {
-          ...current.loading,
-          recall: false,
-        },
-        errors: {
-          ...current.errors,
-          recall: null,
-        },
-      }))
+      setSession((current) => {
+        if (!isCurrentSession(current, requestSessionId, requestGeneration)) {
+          return current
+        }
+
+        return {
+          ...current,
+          recalled_memories: Array.isArray(response.memories)
+            ? response.memories
+            : [],
+          loading: {
+            ...current.loading,
+            recall: false,
+          },
+          errors: {
+            ...current.errors,
+            recall: null,
+          },
+        }
+      })
 
       return true
     } catch (error) {
@@ -348,17 +436,23 @@ export default function App() {
           ? error.message
           : 'Unable to recall debugging memory.'
 
-      setSession((current) => ({
-        ...current,
-        loading: {
-          ...current.loading,
-          recall: false,
-        },
-        errors: {
-          ...current.errors,
-          recall: message,
-        },
-      }))
+      setSession((current) => {
+        if (!isCurrentSession(current, requestSessionId, requestGeneration)) {
+          return current
+        }
+
+        return {
+          ...current,
+          loading: {
+            ...current.loading,
+            recall: false,
+          },
+          errors: {
+            ...current.errors,
+            recall: message,
+          },
+        }
+      })
 
       return false
     }
