@@ -1,5 +1,6 @@
 const { createFingerprint } = require("./services/fingerprint");
 const { putMemory, getMemories } = require("./services/dynamodb");
+const { analyzeDebuggingSession } = require("./services/bedrock");
 
 const requiredAttemptFields = [
   "session_id",
@@ -197,6 +198,95 @@ async function handleRecall(
   });
 }
 
+function validateAnalyze(body) {
+  if (!body || typeof body !== "object") {
+    return "Request body must be an object";
+  }
+
+  const required = ["session_id", "repo_id", "component", "attempts"];
+  for (const field of required) {
+    if (body[field] === undefined || body[field] === null || body[field] === "") {
+      return `Missing required field: ${field}`;
+    }
+  }
+
+  if (!Array.isArray(body.attempts)) {
+    return "Field 'attempts' must be an array";
+  }
+
+  for (let i = 0; i < body.attempts.length; i++) {
+    const att = body.attempts[i];
+    if (!att || typeof att !== "object") {
+      return `Attempt at index ${i} must be an object`;
+    }
+    if (att.hypothesis_category && !allowedCategories.includes(att.hypothesis_category)) {
+      return `Invalid hypothesis_category at attempt index ${i}`;
+    }
+  }
+
+  return null;
+}
+
+async function handleAnalyze(body) {
+  const validationError = validateAnalyze(body);
+  if (validationError) {
+    return response(400, {
+      success: false,
+      error: validationError
+    });
+  }
+
+  try {
+    const analysis = await analyzeDebuggingSession({
+      sessionId: body.session_id,
+      repoId: body.repo_id,
+      component: body.component,
+      attempts: body.attempts
+    });
+
+    return response(200, {
+      success: true,
+      analysis
+    });
+  } catch (err) {
+    console.error("Bedrock analysis error:", err.name, err.message);
+
+    if (
+      err.name === "AccessDeniedException" ||
+      err.message?.includes("AccessDenied") ||
+      err.message?.includes("Operation not allowed")
+    ) {
+      return response(403, {
+        success: false,
+        error: "Bedrock access denied or model access not granted"
+      });
+    }
+
+    if (err.name === "ThrottlingException" || err.name === "ModelNotReadyException") {
+      return response(429, {
+        success: false,
+        error: "Bedrock service is currently throttled or busy"
+      });
+    }
+
+    if (
+      err.name === "ValidationException" ||
+      err.message?.startsWith("Missing or invalid field") ||
+      err.message?.includes("Failed to parse model output")
+    ) {
+      return response(500, {
+        success: false,
+        error: "Failed to produce valid structured reasoning from model"
+      });
+    }
+
+    return response(500, {
+      success: false,
+      error: "Internal Bedrock analysis failure"
+    });
+  }
+}
+
 exports.handler = async event => {
   try {
     const method =
@@ -233,10 +323,8 @@ exports.handler = async event => {
     }
 
     if (method === "POST" && path === "/analyze") {
-      return response(501, {
-        success: false,
-        error: "Bedrock analysis integration is not connected yet"
-      });
+      const body = parseBody(event);
+      return await handleAnalyze(body);
     }
 
     return response(404, {
