@@ -12,7 +12,7 @@ import WhyMap from './components/WhyMap.jsx'
 import MemoryPanel from './components/MemoryPanel.jsx'
 import AgentPanel from './components/AgentPanel.jsx'
 import { createInitialSession } from './session.js'
-import { ApiError, createAttempt } from './services/api.js'
+import { ApiError, analyzeAttempts, createAttempt } from './services/api.js'
 
 export default function App() {
   const [session, setSession] = useState(createInitialSession)
@@ -111,6 +111,73 @@ export default function App() {
     }
   }
 
+  async function analyzeLoop() {
+    if (!session.loop_detected || session.loading.analyze) {
+      return false
+    }
+
+    const payload = {
+      session_id: session.session_id,
+      repo_id: session.repo_id,
+      component: session.component,
+      error: session.error,
+      attempts: session.attempts,
+      prior_fingerprints: session.prior_fingerprints,
+    }
+
+    setSession((current) => ({
+      ...current,
+      loading: {
+        ...current.loading,
+        analyze: true,
+      },
+      errors: {
+        ...current.errors,
+        analyze: null,
+      },
+    }))
+
+    try {
+      const response = await analyzeAttempts(payload)
+
+      setSession((current) => ({
+        ...current,
+        analysis: response,
+        loading: {
+          ...current.loading,
+          analyze: false,
+        },
+        errors: {
+          ...current.errors,
+          analyze: null,
+        },
+      }))
+
+      return true
+    } catch (error) {
+      const message =
+        error instanceof ApiError && error.status === 501
+          ? 'Analysis is currently unavailable.'
+          : error instanceof ApiError
+            ? error.message
+            : 'Unable to analyze the debugging loop.'
+
+      setSession((current) => ({
+        ...current,
+        loading: {
+          ...current.loading,
+          analyze: false,
+        },
+        errors: {
+          ...current.errors,
+          analyze: message,
+        },
+      }))
+
+      return false
+    }
+  }
+
   return (
     <div className="app">
       <Header agent={session.agent} />
@@ -131,10 +198,14 @@ export default function App() {
           error={session.errors.attempt}
           onSubmit={submitAttempt}
         />
-        <LoopStatus loopDetected={session.loop_detected} />
+        <LoopStatus
+          loopDetected={session.loop_detected}
+          analyzeLoading={session.loading.analyze}
+          analyzeError={session.errors.analyze}
+          onAnalyze={analyzeLoop}
+        />
         <AnalysisPanel
           analysis={session.analysis}
-          verification={session.verification}
         />
         <MemoryPanel memorySaveStatus={session.memorySaveStatus} />
       </section>

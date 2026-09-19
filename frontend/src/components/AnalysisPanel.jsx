@@ -1,38 +1,11 @@
-function textValue(value) {
-  if (typeof value === 'string' && value.trim()) {
-    return value.trim()
-  }
-
-  return null
-}
-
-function listValue(value) {
-  if (Array.isArray(value) && value.length > 0) {
-    return value
-  }
-
-  return null
-}
-
-function firstPresent(source, keys) {
-  if (!source || typeof source !== 'object') {
+function presentValue(source, key) {
+  if (!source || typeof source !== 'object' || !(key in source)) {
     return null
   }
 
-  for (const key of keys) {
-    const value = source[key]
-    const asText = textValue(value)
-    if (asText) {
-      return asText
-    }
+  const value = source[key]
 
-    const asList = listValue(value)
-    if (asList) {
-      return asList
-    }
-  }
-
-  return null
+  return value === null || value === undefined || value === '' ? null : value
 }
 
 function renderValue(value) {
@@ -43,17 +16,23 @@ function renderValue(value) {
           <li key={index}>
             {typeof item === 'string'
               ? item
-              : item.hypothesis || item.reason || JSON.stringify(item)}
+              : item && typeof item === 'object'
+                ? item.hypothesis || item.reason || JSON.stringify(item)
+                : String(item)}
           </li>
         ))}
       </ul>
     )
   }
 
-  return <p>{value}</p>
+  return (
+    <p>
+      {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+    </p>
+  )
 }
 
-export default function AnalysisPanel({ analysis, verification }) {
+export default function AnalysisPanel({ analysis }) {
   if (!analysis) {
     return (
       <section className="journey-step" aria-labelledby="analysis-heading">
@@ -68,19 +47,29 @@ export default function AnalysisPanel({ analysis, verification }) {
     )
   }
 
-  const hypothesis = firstPresent(analysis, ['hypothesis', 'current_hypothesis'])
-  const nextInvestigation = firstPresent(analysis, [
-    'next_investigation',
-    'nextInvestigation',
-  ])
-  const rootCause = firstPresent(analysis, ['root_cause', 'rootCause'])
-  const fix = firstPresent(analysis, ['fix', 'suggested_fix'])
-  const verificationValue =
-    textValue(verification) || firstPresent(analysis, ['verification'])
-  const ruledOut = firstPresent(analysis, ['ruled_out', 'ruledOut'])
-  const analysisEvidence = firstPresent(analysis, ['evidence'])
+  const fields = [
+    ['Hypothesis', 'hypothesis'],
+    ['Current hypothesis supported', 'current_hypothesis_supported'],
+    ['Observed evidence', 'evidence'],
+    ['Next investigation', 'next_investigation'],
+    ['Ruled out', 'ruled_out'],
+    ['Root cause', 'root_cause'],
+    ['Fix', 'fix'],
+    ['Verification', 'verification'],
+  ]
+    .map(([label, key]) => ({
+      key,
+      label,
+      value: presentValue(analysis, key),
+    }))
+    .filter(({ value }) => value !== null)
 
-  const hasOutcome = rootCause || fix || verificationValue
+  const outcomeFields = fields.filter(({ key }) =>
+    ['root_cause', 'fix', 'verification'].includes(key),
+  )
+  const primaryFields = fields.filter(({ key }) =>
+    !['root_cause', 'fix', 'verification'].includes(key),
+  )
 
   return (
     <section className="journey-step" aria-labelledby="analysis-heading">
@@ -89,58 +78,28 @@ export default function AnalysisPanel({ analysis, verification }) {
         <span className="badge">Available</span>
       </div>
 
-      <div className="analysis-grid">
-        <div>
-          <h4 className="field-label">Hypothesis</h4>
-          {hypothesis ? renderValue(hypothesis) : (
-            <p className="empty-state">No hypothesis supplied.</p>
-          )}
-        </div>
-        <div>
-          <h4 className="field-label">Observed evidence</h4>
-          {analysisEvidence ? renderValue(analysisEvidence) : (
-            <p className="empty-state">No evidence supplied.</p>
-          )}
-        </div>
-        <div>
-          <h4 className="field-label">Next investigation</h4>
-          {nextInvestigation ? renderValue(nextInvestigation) : (
-            <p className="empty-state">No next investigation supplied.</p>
-          )}
-        </div>
-      </div>
-      {ruledOut ? (
-        <div>
-          <h4 className="field-label">Ruled out</h4>
-          {renderValue(ruledOut)}
+      {primaryFields.length > 0 ? (
+        <div className="analysis-grid">
+          {primaryFields.map(({ key, label, value }) => (
+            <div key={key}>
+              <h4 className="field-label">{label}</h4>
+              {renderValue(value)}
+            </div>
+          ))}
         </div>
       ) : null}
 
-      {hasOutcome ? (
+      {outcomeFields.length > 0 ? (
         <div className="outcome-grid">
-          <div>
-            <h4 className="field-label">Root cause</h4>
-            {rootCause ? renderValue(rootCause) : (
-              <p className="empty-state">Not supplied.</p>
-            )}
-          </div>
-          <div>
-            <h4 className="field-label">Fix</h4>
-            {fix ? renderValue(fix) : (
-              <p className="empty-state">Not supplied.</p>
-            )}
-          </div>
-          <div>
-            <h4 className="field-label">Verification</h4>
-            {verificationValue ? renderValue(verificationValue) : (
-              <p className="empty-state">Not verified.</p>
-            )}
-          </div>
+          {outcomeFields.map(({ key, label, value }) => (
+            <div key={key}>
+              <h4 className="field-label">{label}</h4>
+              {renderValue(value)}
+            </div>
+          ))}
         </div>
       ) : (
-        <p className="empty-state">
-          Root cause, fix, and verification will appear when they are supplied.
-        </p>
+        <p className="empty-state">No analysis fields were supplied.</p>
       )}
     </section>
   )
