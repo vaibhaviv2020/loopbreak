@@ -1,0 +1,18 @@
+{
+  "name": "lb-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Controlled coding agent runtime for LoopBreak",
+  "main": "src/cli.js",
+  "bin": {
+    "lb-agent": "src/cli.js"
+  },
+  "scripts": {
+    "test": "node test/tools.test.js && node test/agent.test.js",
+    "serve": "node src/cli.js serve",
+    "demo": "node src/cli.js demo",
+    "agent-a": "node src/cli.js agent-a",
+    "agent-b": "node src/cli.js agent-b",
+    "reset": "node src/cli.js reset"
+  }
+}

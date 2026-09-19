@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Header from './components/Header.jsx'
 import DemoControls from './components/DemoControls.jsx'
 import SessionContext from './components/SessionContext.jsx'
@@ -24,6 +24,171 @@ export default function App() {
   const [session, setSession] = useState(createInitialSession)
   const agentASession = useRef(null)
   const sessionGeneration = useRef(0)
+  const [sseStatus, setSseStatus] = useState('offline')
+
+  function handleAgentEvent(event) {
+    const { type, data } = event
+    if (!type || !data) return
+
+    switch (type) {
+      case 'session_started':
+        sessionGeneration.current += 1
+        setSession((prev) => ({
+          ...createInitialSession(),
+          session_id: data.session_id || prev.session_id,
+          repo_id: data.repo_id || prev.repo_id,
+          component: data.component || prev.component,
+          agent: data.agent || 'A',
+          attempts: [],
+          prior_fingerprints: [],
+          analysis: null,
+          recalled_memories: [],
+          loop_detected: false,
+          verification: '',
+          memorySaveStatus: 'idle',
+          loading: { attempt: false, analyze: false, memory: false, recall: false },
+          errors: { attempt: null, analyze: null, memory: null, recall: null },
+        }))
+        break
+
+      case 'attempt_submitted':
+        setSession((prev) => ({
+          ...prev,
+          attempts: [
+            ...prev.attempts,
+            {
+              hypothesis: data.hypothesis,
+              hypothesis_category: data.hypothesis_category,
+              change: data.change,
+              result: data.result,
+              evidence: data.evidence,
+            },
+          ],
+        }))
+        break
+
+      case 'attempt_result':
+        setSession((prev) => {
+          const updatedAttempts = [...prev.attempts]
+          if (updatedAttempts.length > 0 && data.fingerprint) {
+            const lastIdx = updatedAttempts.length - 1
+            updatedAttempts[lastIdx] = {
+              ...updatedAttempts[lastIdx],
+              fingerprint: data.fingerprint,
+              loop_detected: data.loop_detected,
+            }
+          }
+          return {
+            ...prev,
+            attempts: updatedAttempts,
+            prior_fingerprints: Array.isArray(data.updated_fingerprints)
+              ? data.updated_fingerprints
+              : prev.prior_fingerprints,
+            loop_detected:
+              typeof data.loop_detected === 'boolean'
+                ? data.loop_detected
+                : prev.loop_detected,
+          }
+        })
+        break
+
+      case 'loop_detected':
+        setSession((prev) => ({
+          ...prev,
+          loop_detected: true,
+        }))
+        break
+
+      case 'analysis_started':
+        setSession((prev) => ({
+          ...prev,
+          loading: { ...prev.loading, analyze: true },
+          errors: { ...prev.errors, analyze: null },
+        }))
+        break
+
+      case 'analysis_result':
+        setSession((prev) => ({
+          ...prev,
+          analysis: data.analysis,
+          loading: { ...prev.loading, analyze: false },
+        }))
+        break
+
+      case 'verification':
+        setSession((prev) => ({
+          ...prev,
+          verification: data.result || 'Checkout test passed',
+        }))
+        break
+
+      case 'memory_saved':
+        setSession((prev) => ({
+          ...prev,
+          memorySaveStatus: 'saved',
+        }))
+        break
+
+      case 'recall_result':
+        setSession((prev) => ({
+          ...prev,
+          recalled_memories: data.memories || [],
+          agent: 'B',
+        }))
+        break
+
+      default:
+        break
+    }
+  }
+
+  useEffect(() => {
+    const sseUrl = import.meta.env.VITE_SSE_URL || 'http://127.0.0.1:8787/events'
+    let eventSource = null
+
+    try {
+      eventSource = new EventSource(sseUrl)
+
+      eventSource.onopen = () => {
+        setSseStatus('connected')
+      }
+
+      eventSource.onerror = () => {
+        setSseStatus('offline')
+      }
+
+      eventSource.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data)
+          handleAgentEvent(payload)
+        } catch (err) {
+          console.warn('[SSE] Error parsing event message:', err)
+        }
+      }
+    } catch (err) {
+      console.warn('[SSE] EventSource initialization failed:', err)
+    }
+
+    return () => {
+      if (eventSource) {
+        eventSource.close()
+      }
+    }
+  }, [])
+
+  async function triggerAgent(agentType) {
+    const sseTriggerUrl =
+      import.meta.env.VITE_SSE_TRIGGER_URL || 'http://127.0.0.1:8787/trigger'
+    try {
+      await fetch(sseTriggerUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent: agentType }),
+      })
+    } catch (err) {
+      console.warn('[App] Failed to trigger agent via SSE relay:', err)
+    }
+  }
 
   function isCurrentSession(current, requestSessionId, requestGeneration) {
     return (
@@ -461,7 +626,12 @@ export default function App() {
   return (
     <div className="app">
       <Header agent={session.agent} />
-      <DemoControls onLoadDemo={loadDemoScenario} onResetDemo={resetDemo} />
+      <DemoControls
+        onLoadDemo={loadDemoScenario}
+        onResetDemo={resetDemo}
+        onTriggerAgent={triggerAgent}
+        sseStatus={sseStatus}
+      />
       <SessionContext session={session} />
       <CurrentError error={session.error} />
 

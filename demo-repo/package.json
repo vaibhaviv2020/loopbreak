@@ -1,0 +1,9 @@
+{
+  "name": "demo-checkout",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Deterministic checkout scenario for LoopBreak demo",
+  "scripts": {
+    "test": "node test/checkout.test.js"
+  }
+}
