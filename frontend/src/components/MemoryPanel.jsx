@@ -17,11 +17,12 @@ export default function MemoryPanel({
   const hypothesisCategory =
     analysis?.hypothesis_category || latestAttempt?.hypothesis_category
   const failedHypotheses = analysis?.failed_hypotheses || analysis?.ruled_out
+  const hasUsableAnalysis = Boolean(analysis && hasValue(analysis.fix))
   const canSave =
     !saved &&
     !loading &&
     Boolean(verification.trim()) &&
-    analysis &&
+    hasUsableAnalysis &&
     hasValue(hypothesisCategory) &&
     hasValue(failedHypotheses) &&
     hasValue(analysis.evidence) &&
@@ -40,38 +41,51 @@ export default function MemoryPanel({
         Save verified debugging knowledge. Only verified results should become
         reusable memory.
       </p>
-      <label className="field-label" htmlFor="verification">
-        Verification
-      </label>
-      <textarea
-        id="verification"
-        value={verification}
-        onChange={onVerificationChange}
-        placeholder="Describe how the fix was verified."
-        disabled={saved || loading}
-        rows="3"
-      />
-      {saved ? (
+      {!analysis ? (
+        <p className="empty-state">Not saved yet.</p>
+      ) : saved ? (
         <div className="memory-callout" role="status">
           <p className="memory-callout__title">Memory saved</p>
           <p>This debugging result is available for future agents.</p>
         </div>
       ) : (
         <>
-          <button
-            type="button"
-            className="button"
-            onClick={onSave}
-            disabled={!canSave}
-          >
-            {loading ? 'Saving memory...' : 'Save Memory'}
-          </button>
+          {hasUsableAnalysis ? (
+            <>
+              <label className="field-label" htmlFor="verification">
+                Verification
+              </label>
+              <textarea
+                id="verification"
+                value={verification}
+                onChange={onVerificationChange}
+                placeholder="Describe how the fix was verified."
+                disabled={loading}
+                rows="3"
+              />
+              {canSave ? (
+                <button
+                  type="button"
+                  className="button"
+                  onClick={onSave}
+                  disabled={loading}
+                >
+                  {loading ? 'Saving memory...' : 'Save Memory'}
+                </button>
+              ) : null}
+            </>
+          ) : null}
           {error ? (
             <p className="form-error" role="alert">
               {error}
             </p>
           ) : null}
-          {!canSave && !error ? (
+          {!hasUsableAnalysis && !error ? (
+            <p className="empty-state">
+              Verification required after a usable fix is supplied.
+            </p>
+          ) : null}
+          {hasUsableAnalysis && !canSave && !error ? (
             <p className="empty-state">
               Verification required before memory can be saved.
             </p>
