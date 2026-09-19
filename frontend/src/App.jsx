@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import Header from './components/Header.jsx'
 import DemoControls from './components/DemoControls.jsx'
 import SessionContext from './components/SessionContext.jsx'
@@ -16,18 +16,35 @@ import {
   ApiError,
   analyzeAttempts,
   createAttempt,
+  recallMemory,
   saveMemory,
 } from './services/api.js'
 
 export default function App() {
   const [session, setSession] = useState(createInitialSession)
+  const agentASession = useRef(null)
 
   function loadDemoScenario() {
+    agentASession.current = null
     setSession(createInitialSession())
   }
 
   function resetDemo() {
+    agentASession.current = null
     setSession(createInitialSession())
+  }
+
+  function startAgentB() {
+    agentASession.current = session
+
+    setSession((current) => ({
+      ...createInitialSession(),
+      session_id: 'session-agent-b-001',
+      repo_id: current.repo_id,
+      component: current.component,
+      error: current.error,
+      agent: 'B',
+    }))
   }
 
   async function submitAttempt(fields) {
@@ -286,6 +303,67 @@ export default function App() {
     }
   }
 
+  async function recallForAgentB() {
+    if (session.agent !== 'B' || session.loading.recall) {
+      return false
+    }
+
+    setSession((current) => ({
+      ...current,
+      loading: {
+        ...current.loading,
+        recall: true,
+      },
+      errors: {
+        ...current.errors,
+        recall: null,
+      },
+    }))
+
+    try {
+      const response = await recallMemory({
+        repo_id: session.repo_id,
+        component: session.component,
+      })
+
+      setSession((current) => ({
+        ...current,
+        recalled_memories: Array.isArray(response.memories)
+          ? response.memories
+          : [],
+        loading: {
+          ...current.loading,
+          recall: false,
+        },
+        errors: {
+          ...current.errors,
+          recall: null,
+        },
+      }))
+
+      return true
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : 'Unable to recall debugging memory.'
+
+      setSession((current) => ({
+        ...current,
+        loading: {
+          ...current.loading,
+          recall: false,
+        },
+        errors: {
+          ...current.errors,
+          recall: message,
+        },
+      }))
+
+      return false
+    }
+  }
+
   return (
     <div className="app">
       <Header agent={session.agent} />
@@ -332,6 +410,10 @@ export default function App() {
       <AgentPanel
         agent={session.agent}
         recalledMemories={session.recalled_memories}
+        recallLoading={session.loading.recall}
+        recallError={session.errors.recall}
+        onStartAgentB={startAgentB}
+        onRecall={recallForAgentB}
       />
     </div>
   )

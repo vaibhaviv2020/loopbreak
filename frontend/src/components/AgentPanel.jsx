@@ -1,21 +1,3 @@
-function memoryField(memory, keys) {
-  if (!memory || typeof memory !== 'object') {
-    return null
-  }
-
-  for (const key of keys) {
-    const value = memory[key]
-    if (typeof value === 'string' && value.trim()) {
-      return value.trim()
-    }
-    if (Array.isArray(value) && value.length > 0) {
-      return value
-    }
-  }
-
-  return null
-}
-
 function renderMemoryValue(value) {
   if (Array.isArray(value)) {
     return (
@@ -24,29 +6,43 @@ function renderMemoryValue(value) {
           <li key={index}>
             {typeof item === 'string'
               ? item
-              : item.hypothesis || item.reason || item.fix || JSON.stringify(item)}
+              : item && typeof item === 'object'
+                ? item.hypothesis || item.reason || item.fix || JSON.stringify(item)
+                : String(item)}
           </li>
         ))}
       </ul>
     )
   }
 
-  return <p>{value}</p>
+  return <p>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</p>
 }
 
-export default function AgentPanel({ agent, recalledMemories }) {
+const memoryFields = [
+  ['Error', 'error'],
+  ['Hypothesis category', 'hypothesis_category'],
+  ['Failed hypotheses', 'failed_hypotheses'],
+  ['Evidence', 'evidence'],
+  ['Root cause', 'root_cause'],
+  ['Fix', 'fix'],
+  ['Verification', 'verification'],
+]
+
+function hasValue(value) {
+  return value !== undefined && value !== null && value !== ''
+}
+
+export default function AgentPanel({
+  agent,
+  recalledMemories,
+  recallLoading,
+  recallError,
+  onStartAgentB,
+  onRecall,
+}) {
   const isAgentB = agent === 'B'
   const memories = recalledMemories || []
   const hasMemories = memories.length > 0
-  const memory = hasMemories ? memories[0] : null
-
-  const failedDirection = memoryField(memory, [
-    'hypothesis_category',
-    'failed_hypotheses',
-  ])
-  const whyFailed = memoryField(memory, ['failed_hypotheses', 'evidence'])
-  const rootCause = memoryField(memory, ['root_cause'])
-  const previousFix = memoryField(memory, ['fix'])
 
   return (
     <section className="agent-b" aria-labelledby="agent-b-heading">
@@ -62,39 +58,46 @@ export default function AgentPanel({ agent, recalledMemories }) {
         Agent A stores verified memory. Agent B starts later and recalls it.
       </p>
 
+      <button
+        type="button"
+        className="button"
+        onClick={isAgentB ? onRecall : onStartAgentB}
+        disabled={isAgentB && recallLoading}
+      >
+        {isAgentB && recallLoading
+          ? 'Recalling memory...'
+          : isAgentB
+            ? 'Recall Memory'
+            : 'Start Agent B session'}
+      </button>
+      {recallError ? (
+        <p className="form-error" role="alert">
+          {recallError}
+        </p>
+      ) : null}
+
       <h3 className="field-label">Recalled memory</h3>
       {hasMemories ? (
-        <div className="agent-b__memory">
-          <p>Previous debugging knowledge</p>
-          <div>
-            <h4 className="field-label">Failed direction</h4>
-            {failedDirection ? renderMemoryValue(failedDirection) : (
-              <p className="empty-state">Not supplied in recalled memory.</p>
-            )}
+        memories.map((memory, index) => (
+          <div className="agent-b__memory" key={memory.SK || memory.timestamp || index}>
+            <p>Previous debugging knowledge</p>
+            {memoryFields.map(([label, key]) => {
+              const value = memory && typeof memory === 'object' ? memory[key] : null
+
+              return hasValue(value) ? (
+                <div key={key}>
+                  <h4 className="field-label">{label}</h4>
+                  {renderMemoryValue(value)}
+                </div>
+              ) : null
+            })}
           </div>
-          <div>
-            <h4 className="field-label">Why it failed</h4>
-            {whyFailed ? renderMemoryValue(whyFailed) : (
-              <p className="empty-state">Not supplied in recalled memory.</p>
-            )}
-          </div>
-          <div>
-            <h4 className="field-label">Root cause</h4>
-            {rootCause ? renderMemoryValue(rootCause) : (
-              <p className="empty-state">Not supplied in recalled memory.</p>
-            )}
-          </div>
-          <div>
-            <h4 className="field-label">Previous fix</h4>
-            {previousFix ? renderMemoryValue(previousFix) : (
-              <p className="empty-state">Not supplied in recalled memory.</p>
-            )}
-          </div>
-        </div>
+        ))
       ) : (
         <p className="empty-state">
-          No prior debugging memory recalled yet. Start a new Agent B session
-          and recall available memory.
+          {isAgentB
+            ? 'No prior debugging memory found.'
+            : 'Start a new Agent B session to recall available memory.'}
         </p>
       )}
     </section>
