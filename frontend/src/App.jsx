@@ -12,7 +12,12 @@ import WhyMap from './components/WhyMap.jsx'
 import MemoryPanel from './components/MemoryPanel.jsx'
 import AgentPanel from './components/AgentPanel.jsx'
 import { createInitialSession } from './session.js'
-import { ApiError, analyzeAttempts, createAttempt } from './services/api.js'
+import {
+  ApiError,
+  analyzeAttempts,
+  createAttempt,
+  saveMemory,
+} from './services/api.js'
 
 export default function App() {
   const [session, setSession] = useState(createInitialSession)
@@ -178,6 +183,109 @@ export default function App() {
     }
   }
 
+  function updateVerification(event) {
+    const verification = event.target.value
+
+    setSession((current) => ({
+      ...current,
+      verification,
+      memorySaveStatus:
+        current.memorySaveStatus === 'saved' ? 'idle' : current.memorySaveStatus,
+      errors: {
+        ...current.errors,
+        memory: null,
+      },
+    }))
+  }
+
+  async function saveVerifiedMemory() {
+    const analysis = session.analysis
+    const verification = session.verification.trim()
+    const latestAttempt = session.attempts.at(-1)
+    const hypothesisCategory =
+      analysis?.hypothesis_category || latestAttempt?.hypothesis_category
+    const failedHypotheses =
+      analysis?.failed_hypotheses || analysis?.ruled_out
+
+    if (
+      !analysis ||
+      session.loading.memory ||
+      !verification ||
+      !hypothesisCategory ||
+      !failedHypotheses ||
+      !analysis.evidence ||
+      !analysis.root_cause ||
+      !analysis.fix
+    ) {
+      return false
+    }
+
+    const payload = {
+      session_id: session.session_id,
+      repo_id: session.repo_id,
+      component: session.component,
+      error: session.error,
+      hypothesis_category: hypothesisCategory,
+      failed_hypotheses: failedHypotheses,
+      evidence: analysis.evidence,
+      root_cause: analysis.root_cause,
+      fix: analysis.fix,
+      verification,
+    }
+
+    setSession((current) => ({
+      ...current,
+      loading: {
+        ...current.loading,
+        memory: true,
+      },
+      memorySaveStatus: 'idle',
+      errors: {
+        ...current.errors,
+        memory: null,
+      },
+    }))
+
+    try {
+      await saveMemory(payload)
+
+      setSession((current) => ({
+        ...current,
+        loading: {
+          ...current.loading,
+          memory: false,
+        },
+        memorySaveStatus: 'saved',
+        errors: {
+          ...current.errors,
+          memory: null,
+        },
+      }))
+
+      return true
+    } catch (error) {
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : 'Unable to save the debugging memory.'
+
+      setSession((current) => ({
+        ...current,
+        loading: {
+          ...current.loading,
+          memory: false,
+        },
+        memorySaveStatus: 'idle',
+        errors: {
+          ...current.errors,
+          memory: message,
+        },
+      }))
+
+      return false
+    }
+  }
+
   return (
     <div className="app">
       <Header agent={session.agent} />
@@ -207,7 +315,16 @@ export default function App() {
         <AnalysisPanel
           analysis={session.analysis}
         />
-        <MemoryPanel memorySaveStatus={session.memorySaveStatus} />
+        <MemoryPanel
+          analysis={session.analysis}
+          attempts={session.attempts}
+          verification={session.verification}
+          loading={session.loading.memory}
+          error={session.errors.memory}
+          memorySaveStatus={session.memorySaveStatus}
+          onVerificationChange={updateVerification}
+          onSave={saveVerifiedMemory}
+        />
       </section>
 
       <EvidencePanel attempts={session.attempts} analysis={session.analysis} />
