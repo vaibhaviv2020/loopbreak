@@ -1,6 +1,6 @@
 export function createInitialSession() {
   return {
-    session_id: 'session-agent-a-001',
+    session_id: `session-agent-a-${Date.now()}`,
     repo_id: 'demo-checkout',
     component: 'checkoutService',
     error: 'Checkout request failed with timeout',
@@ -24,5 +24,23 @@ export function createInitialSession() {
       memory: null,
       recall: null,
     },
+  }
+}
+
+export function createDemoScenarioSession() {
+  return {
+    ...createInitialSession(),
+    session_id: `session-agent-a-${Date.now()}`,
+    repo_id: 'demo-checkout',
+    component: 'checkoutService',
+    error: 'Checkout request failed with timeout',
+    agent: 'A',
+    attempts: [],
+    prior_fingerprints: [],
+    analysis: null,
+    recalled_memories: [],
+    loop_detected: false,
+    verification: '',
+    memorySaveStatus: 'idle',
   }
 }

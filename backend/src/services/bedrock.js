@@ -195,6 +195,8 @@ function getFixtureAnalysis(repoId, component, attempts) {
     };
   }
 
+  const uniqueEvidence = Array.from(new Set(allEvidence));
+
   // Full checkout scenario with payment evidence
   if (hasPaymentEvidence) {
     return {
@@ -205,7 +207,7 @@ function getFixtureAnalysis(repoId, component, attempts) {
           evidence: ["Database query completes successfully"]
         }
       ],
-      evidence: allEvidence.length > 0 ? allEvidence : [
+      evidence: uniqueEvidence.length > 0 ? uniqueEvidence : [
         "Database query completes successfully",
         "Payment API responds after approximately 3.8 seconds",
         "Client timeout is 2 seconds"
@@ -221,7 +223,7 @@ function getFixtureAnalysis(repoId, component, attempts) {
   // General fallback reasoning
   return {
     ruled_out: ruledOut,
-    evidence: allEvidence,
+    evidence: uniqueEvidence,
     current_hypothesis_supported: false,
     next_investigation: `Investigate non-${dbAttempts.length > 0 ? "database" : "current"} components and check upstream/downstream services`,
     root_cause: null,

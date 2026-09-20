@@ -1,33 +1,26 @@
+import React from 'react'
+
 export default function SessionContext({ session }) {
   return (
-    <section className="context-bar" aria-labelledby="session-heading">
-      <h2 id="session-heading" className="visually-hidden">
-        Session context
-      </h2>
-      <dl className="context-bar__list">
-        <div>
-          <dt>Session</dt>
-          <dd>
-            <code>{session.session_id}</code>
-          </dd>
+    <div className="case-file-header">
+      <div className="case-file-title-row">
+        <span className="case-label">CASE FILE</span>
+        <span className="case-id"><code>{session.repo_id}#{session.component}</code></span>
+        <span className={`case-agent-badge case-agent-badge--${session.agent.toLowerCase()}`}>
+          AGENT {session.agent}
+        </span>
+      </div>
+
+      <div className="case-file-meta-grid">
+        <div className="case-meta-cell">
+          <span className="case-meta-k">COMPONENT</span>
+          <code className="case-meta-v">{session.component}</code>
         </div>
-        <div>
-          <dt>Repository</dt>
-          <dd>
-            <code>{session.repo_id}</code>
-          </dd>
+        <div className="case-meta-cell">
+          <span className="case-meta-k">REPOSITORY</span>
+          <code className="case-meta-v">{session.repo_id}</code>
         </div>
-        <div>
-          <dt>Component</dt>
-          <dd>
-            <code>{session.component}</code>
-          </dd>
-        </div>
-        <div>
-          <dt>Agent</dt>
-          <dd>Agent {session.agent}</dd>
-        </div>
-      </dl>
-    </section>
+      </div>
+    </div>
   )
 }

@@ -43,9 +43,10 @@ function parseBody(event) {
   }
 
   try {
-    return typeof event.body === "string"
-      ? JSON.parse(event.body)
+    const raw = typeof event.body === "string"
+      ? event.body.replace(/^\uFEFF/, "")
       : event.body;
+    return typeof raw === "string" ? JSON.parse(raw) : raw;
   } catch {
     throw new Error("Malformed JSON");
   }

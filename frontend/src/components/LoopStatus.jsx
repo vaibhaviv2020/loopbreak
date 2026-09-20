@@ -1,3 +1,5 @@
+import React from 'react'
+
 export default function LoopStatus({
   loopDetected,
   analyzeLoading,
@@ -7,46 +9,55 @@ export default function LoopStatus({
   const analyzeDisabled = !loopDetected || analyzeLoading
 
   return (
-    <section
-      className={`journey-step${loopDetected ? ' journey-step--loop' : ''}`}
-      aria-labelledby="loop-heading"
+    <div
+      className={`case-loop-box ${
+        loopDetected ? 'case-loop-box--detected' : 'case-loop-box--idle'
+      }`}
     >
-      <div className="journey-step__head">
-        <h3 id="loop-heading">Loop status</h3>
-        <span className={loopDetected ? 'badge badge--warn' : 'badge'}>
-          {loopDetected ? 'Loop detected' : 'Waiting'}
+      <div className="case-loop-top">
+        <div className="case-loop-indicator">
+          <span
+            className={`status-dot ${
+              loopDetected ? 'status-dot--loop' : 'status-dot--idle'
+            }`}
+          />
+          <span className="case-loop-title">
+            {loopDetected ? 'LOOP DETECTED' : 'LOOP DETECTION: MONITORING'}
+          </span>
+        </div>
+        <span
+          className={`badge ${
+            loopDetected ? 'badge--loop' : 'badge--idle'
+          }`}
+        >
+          {loopDetected ? 'REPEATED ×2' : 'NORMAL'}
         </span>
       </div>
-      {loopDetected ? (
-        <div className="loop-callout" role="status">
-          <p className="loop-callout__title">Loop detected</p>
-          <p>
-            Repeated debugging direction identified. That does not mean the bug
-            is solved.
-          </p>
-        </div>
-      ) : (
-        <p className="empty-state">Waiting for repeated debugging attempts...</p>
-      )}
 
-      <div className="analyze-action">
+      {loopDetected ? (
+        <p className="case-loop-desc">
+          Repeated database hypothesis recorded. Intervention required to break
+          the dead-end loop.
+        </p>
+      ) : null}
+
+      <div className="case-loop-action">
         <button
           type="button"
-          className="button"
+          className={`button ${
+            loopDetected ? 'button--analyze' : 'button--disabled'
+          }`}
           onClick={onAnalyze}
           disabled={analyzeDisabled}
         >
-          {analyzeLoading ? 'Analyzing…' : 'Analyze Loop'}
+          {analyzeLoading ? 'Analyzing via Bedrock...' : '⚡ Analyze Loop'}
         </button>
-        {!loopDetected ? (
-          <p className="hint">Available after a loop is detected.</p>
-        ) : null}
         {analyzeError ? (
-          <p className="form-error" role="alert">
+          <div className="form-error" role="alert">
             {analyzeError}
-          </p>
+          </div>
         ) : null}
       </div>
-    </section>
+    </div>
   )
 }

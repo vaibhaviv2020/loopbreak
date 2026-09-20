@@ -11,7 +11,7 @@ export class ApiError extends Error {
 }
 
 function getApiBaseUrl() {
-  const raw = import.meta.env.VITE_API_BASE_URL
+  const raw = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:3000'
 
   if (raw == null || String(raw).trim() === '') {
     throw new ApiError(

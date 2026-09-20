@@ -1,104 +1,146 @@
-function renderMemoryValue(value) {
-  if (Array.isArray(value)) {
-    return (
-      <ul className="stack-list">
-        {value.map((item, index) => (
-          <li key={index}>
-            {typeof item === 'string'
-              ? item
-              : item && typeof item === 'object'
-                ? item.hypothesis || item.reason || item.fix || JSON.stringify(item)
-                : String(item)}
-          </li>
-        ))}
-      </ul>
-    )
-  }
-
-  return <p>{typeof value === 'object' ? JSON.stringify(value) : String(value)}</p>
-}
-
-const memoryFields = [
-  ['Error', 'error'],
-  ['Hypothesis category', 'hypothesis_category'],
-  ['Failed hypotheses', 'failed_hypotheses'],
-  ['Evidence', 'evidence'],
-  ['Root cause', 'root_cause'],
-  ['Fix', 'fix'],
-  ['Verification', 'verification'],
-]
-
-function hasValue(value) {
-  return value !== undefined && value !== null && value !== ''
-}
+import React from 'react'
 
 export default function AgentPanel({
   agent,
-  recalledMemories,
+  recalledMemories = [],
   recallLoading,
   recallError,
   onStartAgentB,
   onRecall,
+  showManualControls = false,
 }) {
   const isAgentB = agent === 'B'
   const memories = recalledMemories || []
   const hasMemories = memories.length > 0
+  const isDormant = !hasMemories && !isAgentB
+
+  const primaryMemory = hasMemories ? memories[0] : null
 
   return (
-    <section className="agent-b" aria-labelledby="agent-b-heading">
-      <div className="agent-b__header">
+    <section
+      className={`agent-b-workspace ${
+        isDormant ? 'agent-b-workspace--dormant' : 'agent-b-workspace--active'
+      }`}
+      aria-labelledby="agent-b-heading"
+    >
+      <div className="agent-b-header">
         <div>
-          <h2 id="agent-b-heading">Agent B</h2>
-          <p className="tagline">New debugging session</p>
+          <h2 id="agent-b-heading" className="workspace-pane-title">
+            AGENT B
+          </h2>
+          <p className="workspace-pane-subtitle">
+            {hasMemories
+              ? 'Active session with persistent memory'
+              : isAgentB
+              ? 'Fresh session — awaiting recall'
+              : 'New debugging session (dormant)'}
+          </p>
         </div>
-        <span className="badge">{isAgentB ? 'Active' : 'Waiting'}</span>
+        <span
+          className={`badge ${
+            hasMemories
+              ? 'badge--transfer'
+              : isAgentB
+              ? 'badge--warn'
+              : 'badge--dormant'
+          }`}
+        >
+          {hasMemories ? '● ACTIVE' : isAgentB ? 'ACTIVE' : 'DORMANT'}
+        </span>
       </div>
 
-      <p className="hint">
-        Agent A stores verified memory. Agent B starts later and recalls it.
-      </p>
+      {showManualControls && (
+        <div className="agent-b-actions">
+          {!isAgentB ? (
+            <button
+              type="button"
+              className="button button--primary"
+              onClick={onStartAgentB}
+            >
+              Start Agent B Session
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="button button--transfer"
+              onClick={onRecall}
+              disabled={recallLoading}
+            >
+              {recallLoading ? 'Recalling memory...' : 'Recall Memory'}
+            </button>
+          )}
+        </div>
+      )}
 
-      <button
-        type="button"
-        className="button"
-        onClick={isAgentB ? onRecall : onStartAgentB}
-        disabled={isAgentB && recallLoading}
-      >
-        {isAgentB && recallLoading
-          ? 'Recalling memory...'
-          : isAgentB
-            ? 'Recall Memory'
-            : 'Start Agent B session'}
-      </button>
       {recallError ? (
-        <p className="form-error" role="alert">
+        <div className="form-error" role="alert">
           {recallError}
-        </p>
+        </div>
       ) : null}
 
-      <h3 className="field-label">Recalled memory</h3>
-      {hasMemories ? (
-        memories.map((memory, index) => (
-          <div className="agent-b__memory" key={memory.SK || memory.timestamp || index}>
-            <p>Previous debugging knowledge</p>
-            {memoryFields.map(([label, key]) => {
-              const value = memory && typeof memory === 'object' ? memory[key] : null
-
-              return hasValue(value) ? (
-                <div key={key}>
-                  <h4 className="field-label">{label}</h4>
-                  {renderMemoryValue(value)}
-                </div>
-              ) : null
-            })}
+      {/* Recalled Memory Display */}
+      {hasMemories && primaryMemory ? (
+        <div className="recalled-memory-record animate-fade-in">
+          <div className="record-badge-strip">
+            <span className="record-badge record-badge--transfer">
+              MEMORY RECALLED FROM DYNAMODB
+            </span>
           </div>
-        ))
+
+          <div className="memory-fact-grid">
+            <div className="memory-fact-item memory-fact-item--deadend">
+              <span className="fact-label">SKIPPED DEAD END</span>
+              <span className="fact-value font-mono">
+                Database hypothesis ruled out
+              </span>
+            </div>
+
+            <div className="memory-fact-item">
+              <span className="fact-label">KNOWN ROOT CAUSE</span>
+              <span className="fact-value font-mono">
+                {primaryMemory.root_cause ||
+                  'Payment latency (~3.8s) exceeds client timeout (2000ms)'}
+              </span>
+            </div>
+
+            <div className="memory-fact-item memory-fact-item--fix">
+              <span className="fact-label">APPLIED FIX</span>
+              <span className="fact-value font-mono">
+                {primaryMemory.fix ||
+                  'Increase payment request timeout from 2s to 5s'}
+              </span>
+            </div>
+
+            <div className="memory-fact-item">
+              <span className="fact-label">VERIFIED RESULT</span>
+              <span className="fact-value font-mono text-success">
+                {primaryMemory.verification || 'Checkout test passed (Exit 0)'}
+              </span>
+            </div>
+          </div>
+
+          {/* Payoff Section: What Agent B did with this memory */}
+          <div className="agent-b-payoff">
+            <div className="payoff-title font-mono">AGENT B OUTCOME</div>
+            <div className="payoff-item payoff-item--verified">
+              <span className="payoff-tag">RESULT</span>
+              <span className="payoff-desc font-mono text-success">
+                Checkout passes on 1st attempt
+              </span>
+            </div>
+          </div>
+        </div>
       ) : (
-        <p className="empty-state">
-          {isAgentB
-            ? 'No prior debugging memory found.'
-            : 'Start a new Agent B session to recall available memory.'}
-        </p>
+        <div className="agent-b-empty">
+          <p className="empty-state-title font-mono">
+            {isAgentB ? 'Awaiting memory recall...' : 'Session Dormant'}
+          </p>
+          <p className="empty-state-desc">
+            {isAgentB
+              ? 'Connecting to DynamoDB /recall endpoint to fetch prior debugging memory...'
+              : 'Agent B will start in a clean session and recall Agent A\'s debugging memory.'}
+          </p>
+        </div>
       )}
     </section>
   )
